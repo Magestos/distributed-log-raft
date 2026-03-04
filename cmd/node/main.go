@@ -1,7 +1,18 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"log"
+
+	"github.com/Magestos/distributed-log-raft/internal/config"
+)
 
 func main() {
-	fmt.Println("Initialize project")
+	newcfg, err := config.Load("internal/config/config.yml")
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println(newcfg)
 }
