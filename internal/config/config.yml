@@ -1,13 +1,13 @@
-node_id: node-1
-client_address: 127.0.0.1:82
-raft_address: 127.0.0.1:83
+node_id: node-2
+client_address: 127.0.0.1:8222
+raft_address: 127.0.0.1:8323
 peers:
-  - 127.0.0.1:81
-  - 127.0.0.1:82
-  - 127.0.0.1:84
-  - 127.0.0.1:85
-  - 127.0.0.1:83
+  - 127.0.0.1:8084
+  - 127.0.0.1:8222
+  - 127.0.0.1:8444
+  - 127.0.0.1:8532
+  - 127.0.0.1:8323
 election_min_ms: 15
 election_max_ms: 200
-data_dir: "./internal"
-
+heartbeat_ms: 5
+data_dir: "data_directory/${node_id}"
