@@ -16,6 +16,9 @@ func NormalizeHostPort(address string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if addrPort.Port() < 1024 {
+		return "", errors.New("privileged port usage detected")
+	}
 	if addrPort.Port() == 0 {
 		return "", errors.New("port out of range")
 	}
@@ -48,7 +51,7 @@ func validateAddress(name, value string) error {
 	}
 
 	if err := ValidateHostPort(value); err != nil {
-		return fmt.Errorf("invalid address or port value on %s", name)
+		return fmt.Errorf("invalid address or port value on %s: %w", name, err)
 	}
 	return nil
 }

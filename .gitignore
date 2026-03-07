@@ -36,4 +36,5 @@ Thumbs.db
 
 # Runtime data
 /data/
+./data_directory/
 tmp/
