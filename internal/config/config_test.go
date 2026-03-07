@@ -343,6 +343,39 @@ func TestLoad(t *testing.T) {
 		}
 	})
 
+	t.Run("creates missing data dir", func(t *testing.T) {
+		missingDataDir := filepath.Join(t.TempDir(), "new-data-dir")
+		configPath := writeConfigFile(t, strings.Join([]string{
+			"node_id: node-1",
+			"client_address: 127.0.0.1:8080",
+			"raft_address: 127.0.0.1:8081",
+			"peers:",
+			"  - 127.0.0.1:8081",
+			"  - 127.0.0.1:8082",
+			"data_dir: " + missingDataDir,
+			"election_min_ms: 150",
+			"election_max_ms: 300",
+			"heartbeat_ms: 50",
+		}, "\n"))
+
+		if _, err := os.Stat(missingDataDir); !os.IsNotExist(err) {
+			t.Fatalf("Stat() error = %v, want not-exist before Load()", err)
+		}
+
+		_, err := Load(configPath)
+		if err != nil {
+			t.Fatalf("Load() returned error: %v", err)
+		}
+
+		info, err := os.Stat(missingDataDir)
+		if err != nil {
+			t.Fatalf("Stat() returned error: %v", err)
+		}
+		if !info.IsDir() {
+			t.Fatalf("Load() created non-directory data dir at %q", missingDataDir)
+		}
+	})
+
 	t.Run("returns read error", func(t *testing.T) {
 		_, err := Load(filepath.Join(t.TempDir(), "missing.yml"))
 		if err == nil || !strings.Contains(err.Error(), "read config file") {

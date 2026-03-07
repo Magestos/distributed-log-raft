@@ -1,7 +1,7 @@
 package ?= default
 CONFIG ?= internal/config/config.yml
-RUN_CONFIG := $(or $(word 2,$(MAKECMDGOALS)),$(CONFIG))
 RUN_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+RUN_CONFIG := $(or $(word 2,$(MAKECMDGOALS)),$(CONFIG))
 
 ifneq ($(RUN_ARGS),)
 .PHONY: $(RUN_ARGS)
