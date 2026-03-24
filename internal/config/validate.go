@@ -65,43 +65,40 @@ func validateAddress(name, value string) error {
 	return nil
 }
 
-func validatePeers(peers []string, raftAddress string) error {
+func validatePeers(peers []Peer, selfNodeID string) error {
 	if len(peers) < 1 {
 		return errors.New("peers cannot be less than 1")
 	}
-
-	normalizedRaftAddress, err := NormalizeHostPort(raftAddress)
-	if err != nil {
-		return fmt.Errorf("invalid raft address %q: %w", raftAddress, err)
-	}
-
-	seen := make(map[string]string, len(peers))
-	var duplicates []string
-	hasRaftAddress := false
+	seenNodeIDs := make(map[string]struct{}, len(peers))
+	seenRaftAddresses := make(map[string]struct{}, len(peers))
+	hasSelf := false
 
 	for _, peer := range peers {
-		normalizedPeer, err := NormalizeHostPort(peer)
-		if err != nil {
-			return fmt.Errorf("invalid peer address %q: %w", peer, err)
+		if err := requireNonEmpty("peer node id", peer.NodeID); err != nil {
+			return err
 		}
 
-		if _, ok := seen[normalizedPeer]; ok {
-			duplicates = append(duplicates, peer)
-			continue
+		if err := validateAddress("peer raft address", peer.RaftAddress); err != nil {
+			return err
 		}
-		seen[normalizedPeer] = peer
 
-		if normalizedPeer == normalizedRaftAddress {
-			hasRaftAddress = true
+		if _, ok := seenNodeIDs[peer.NodeID]; ok {
+			return fmt.Errorf("peers contain duplicate node id %q", peer.NodeID)
+		}
+		seenNodeIDs[peer.NodeID] = struct{}{}
+
+		if _, ok := seenRaftAddresses[peer.RaftAddress]; ok {
+			return fmt.Errorf("peers contain duplicate raft address %q", peer.RaftAddress)
+		}
+		seenRaftAddresses[peer.RaftAddress] = struct{}{}
+
+		if peer.NodeID == selfNodeID {
+			hasSelf = true
 		}
 	}
 
-	if !hasRaftAddress {
-		return errors.New("peers must contain raft address")
-	}
-
-	if len(duplicates) > 0 {
-		return fmt.Errorf("peers contain duplicates: %v", duplicates)
+	if !hasSelf {
+		return errors.New("peers must contain current node id")
 	}
 
 	return nil
@@ -144,12 +141,16 @@ func (conf *Config) Validate() error {
 		return err
 	}
 
-	if err := validateAddress("raft address", conf.RaftAddress); err != nil {
+	if err := validatePeers(conf.Peers, conf.NodeID); err != nil {
 		return err
 	}
 
-	if err := validatePeers(conf.Peers, conf.RaftAddress); err != nil {
-		return err
+	raftAddress, ok := conf.RaftAddress()
+	if !ok {
+		return errors.New("peers must contain current node id")
+	}
+	if conf.ClientAddress == raftAddress {
+		return errors.New("client address must differ from current node raft address")
 	}
 
 	if err := validateTimeouts(conf.ElectionMinMS, conf.ElectionMaxMS, conf.HeartbeatMS); err != nil {

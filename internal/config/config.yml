@@ -1,12 +1,16 @@
 node_id: node-2
 client_address: 127.0.0.1:8222
-raft_address: 127.0.0.1:8323
 peers:
-  - 127.0.0.1:8084
-  - 127.0.0.1:8222
-  - 127.0.0.1:8444
-  - 127.0.0.1:8532
-  - 127.0.0.1:8323
+  - node_id: node-1
+    raft_address: 127.0.0.1:8084
+  - node_id: node-2
+    raft_address: 127.0.0.1:8323
+  - node_id: node-3
+    raft_address: 127.0.0.1:8444
+  - node_id: node-4
+    raft_address: 127.0.0.1:8532
+  - node_id: node-5
+    raft_address: 127.0.0.1:8643
 election_min_ms: 15
 election_max_ms: 200
 heartbeat_ms: 5
