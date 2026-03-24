@@ -48,18 +48,21 @@ func normalizeDataDir(path, nodeID string) string {
 	return filepath.Clean(path)
 }
 
-func normalizePeers(peers []string) ([]string, error) {
+func normalizePeers(peers []Peer) ([]Peer, error) {
 	if len(peers) == 0 {
 		return peers, nil
 	}
 
-	normalized := make([]string, len(peers))
+	normalized := make([]Peer, len(peers))
 	for i, peer := range peers {
-		value, err := NormalizeHostPort(peer)
+		peer.NodeID = strings.TrimSpace(peer.NodeID)
+
+		value, err := NormalizeHostPort(peer.RaftAddress)
 		if err != nil {
-			return nil, fmt.Errorf("normalize peer address %q: %w", peer, err)
+			return nil, fmt.Errorf("normalize peer %q raft address %q: %w", peer.NodeID, peer.RaftAddress, err)
 		}
-		normalized[i] = value
+		peer.RaftAddress = value
+		normalized[i] = peer
 	}
 
 	return normalized, nil
@@ -79,14 +82,6 @@ func normalizeConfig(cfg *Config) error {
 			return fmt.Errorf("normalize client address %q: %w", cfg.ClientAddress, err)
 		}
 		cfg.ClientAddress = value
-	}
-
-	if strings.TrimSpace(cfg.RaftAddress) != "" {
-		value, err := NormalizeHostPort(cfg.RaftAddress)
-		if err != nil {
-			return fmt.Errorf("normalize raft address %q: %w", cfg.RaftAddress, err)
-		}
-		cfg.RaftAddress = value
 	}
 
 	peers, err := normalizePeers(cfg.Peers)

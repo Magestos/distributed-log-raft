@@ -11,10 +11,15 @@ func validConfig(dataDir string) *Config {
 	return &Config{
 		NodeID:        "node-1",
 		ClientAddress: "127.0.0.1:8080",
-		RaftAddress:   "127.0.0.1:8081",
-		Peers: []string{
-			"127.0.0.1:8081",
-			"127.0.0.1:8082",
+		Peers: []Peer{
+			{
+				NodeID:      "node-1",
+				RaftAddress: "127.0.0.1:8081",
+			},
+			{
+				NodeID:      "node-2",
+				RaftAddress: "127.0.0.1:8082",
+			},
 		},
 		DataDir:       dataDir,
 		ElectionMinMS: 150,
@@ -119,6 +124,45 @@ func TestPrepareDataDir(t *testing.T) {
 	})
 }
 
+func TestConfigSelfPeer(t *testing.T) {
+	t.Run("returns current peer and raft address", func(t *testing.T) {
+		cfg := validConfig(filepath.Join(t.TempDir(), "data"))
+
+		peer, ok := cfg.SelfPeer()
+		if !ok {
+			t.Fatal("SelfPeer() did not find current node")
+		}
+
+		if peer.NodeID != "node-1" {
+			t.Fatalf("SelfPeer() NodeID = %q, want %q", peer.NodeID, "node-1")
+		}
+		if peer.RaftAddress != "127.0.0.1:8081" {
+			t.Fatalf("SelfPeer() RaftAddress = %q, want %q", peer.RaftAddress, "127.0.0.1:8081")
+		}
+
+		address, ok := cfg.RaftAddress()
+		if !ok {
+			t.Fatal("RaftAddress() did not resolve current node address")
+		}
+		if address != "127.0.0.1:8081" {
+			t.Fatalf("RaftAddress() = %q, want %q", address, "127.0.0.1:8081")
+		}
+	})
+
+	t.Run("returns false when current peer is missing", func(t *testing.T) {
+		cfg := validConfig(filepath.Join(t.TempDir(), "data"))
+		cfg.NodeID = "node-9"
+
+		if _, ok := cfg.SelfPeer(); ok {
+			t.Fatal("SelfPeer() found unexpected current node")
+		}
+
+		if _, ok := cfg.RaftAddress(); ok {
+			t.Fatal("RaftAddress() resolved unexpected current node address")
+		}
+	})
+}
+
 func TestConfigValidate(t *testing.T) {
 	testCases := []struct {
 		name    string
@@ -160,13 +204,6 @@ func TestConfigValidate(t *testing.T) {
 			wantErr: "invalid address or port value on client address",
 		},
 		{
-			name: "invalid raft address",
-			mutate: func(cfg *Config) {
-				cfg.RaftAddress = "127.0.0.1"
-			},
-			wantErr: "invalid address or port value on raft address",
-		},
-		{
 			name: "empty peers",
 			mutate: func(cfg *Config) {
 				cfg.Peers = nil
@@ -174,28 +211,51 @@ func TestConfigValidate(t *testing.T) {
 			wantErr: "peers cannot be less than 1",
 		},
 		{
-			name: "invalid peer",
+			name: "missing peer node id",
 			mutate: func(cfg *Config) {
-				cfg.Peers = []string{"127.0.0.1"}
+				cfg.Peers[0].NodeID = " "
 			},
-			wantErr: "invalid peer address",
+			wantErr: "peer node id is required",
 		},
 		{
-			name: "missing raft address in peers",
+			name: "invalid peer raft address",
 			mutate: func(cfg *Config) {
-				cfg.Peers = []string{"127.0.0.1:8082"}
+				cfg.Peers[0].RaftAddress = "127.0.0.1"
 			},
-			wantErr: "peers must contain raft address",
+			wantErr: "invalid address or port value on peer raft address",
 		},
 		{
-			name: "duplicate peers",
+			name: "missing current node in peers",
 			mutate: func(cfg *Config) {
-				cfg.Peers = []string{
-					"127.0.0.1:8081",
-					" 127.0.0.1:8081 ",
+				cfg.Peers = []Peer{
+					{
+						NodeID:      "node-2",
+						RaftAddress: "127.0.0.1:8082",
+					},
 				}
 			},
-			wantErr: "peers contain duplicates",
+			wantErr: "peers must contain current node id",
+		},
+		{
+			name: "duplicate peer node id",
+			mutate: func(cfg *Config) {
+				cfg.Peers[1].NodeID = "node-1"
+			},
+			wantErr: "peers contain duplicate node id",
+		},
+		{
+			name: "duplicate peer raft address",
+			mutate: func(cfg *Config) {
+				cfg.Peers[1].RaftAddress = "127.0.0.1:8081"
+			},
+			wantErr: "peers contain duplicate raft address",
+		},
+		{
+			name: "client address equals current raft address",
+			mutate: func(cfg *Config) {
+				cfg.ClientAddress = "127.0.0.1:8081"
+			},
+			wantErr: "client address must differ from current node raft address",
 		},
 		{
 			name: "election min less than one",
@@ -264,10 +324,11 @@ func TestLoad(t *testing.T) {
 		configPath := writeConfigFile(t, strings.Join([]string{
 			"node_id: node-1",
 			"client_address: \" LOCALHOST:8080 \"",
-			"raft_address: \" LOCALHOST:8081 \"",
 			"peers:",
-			"  - \" localhost:8081 \"",
-			"  - \" LOCALHOST:8082 \"",
+			"  - node_id: \" node-1 \"",
+			"    raft_address: \" LOCALHOST:8081 \"",
+			"  - node_id: \" node-2 \"",
+			"    raft_address: \" LOCALHOST:8082 \"",
 			"data_dir: \" " + filepath.Join(baseDir, "${node_id}") + " \"",
 			"election_min_ms: 150",
 			"election_max_ms: 300",
@@ -285,14 +346,28 @@ func TestLoad(t *testing.T) {
 		if cfg.ClientAddress != "localhost:8080" {
 			t.Fatalf("Load() ClientAddress = %q, want %q", cfg.ClientAddress, "localhost:8080")
 		}
-		if cfg.RaftAddress != "localhost:8081" {
-			t.Fatalf("Load() RaftAddress = %q, want %q", cfg.RaftAddress, "localhost:8081")
+
+		raftAddress, ok := cfg.RaftAddress()
+		if !ok {
+			t.Fatal("Load() did not resolve current node raft address")
+		}
+		if raftAddress != "localhost:8081" {
+			t.Fatalf("Load() RaftAddress() = %q, want %q", raftAddress, "localhost:8081")
 		}
 
-		wantPeers := []string{"localhost:8081", "localhost:8082"}
+		wantPeers := []Peer{
+			{
+				NodeID:      "node-1",
+				RaftAddress: "localhost:8081",
+			},
+			{
+				NodeID:      "node-2",
+				RaftAddress: "localhost:8082",
+			},
+		}
 		for i, peer := range wantPeers {
 			if cfg.Peers[i] != peer {
-				t.Fatalf("Load() Peers[%d] = %q, want %q", i, cfg.Peers[i], peer)
+				t.Fatalf("Load() Peers[%d] = %+v, want %+v", i, cfg.Peers[i], peer)
 			}
 		}
 
@@ -315,43 +390,11 @@ func TestLoad(t *testing.T) {
 		configPath := writeConfigFile(t, strings.Join([]string{
 			"node_id: node-1",
 			"client_address: 127.0.0.1:8080",
-			"raft_address: 127.0.0.1:8081",
 			"peers:",
-			"  - 127.0.0.1:8081",
-			"  - 127.0.0.1:8082",
-			"data_dir: " + missingDataDir,
-			"election_min_ms: 150",
-			"election_max_ms: 300",
-			"heartbeat_ms: 50",
-		}, "\n"))
-
-		if _, err := os.Stat(missingDataDir); !os.IsNotExist(err) {
-			t.Fatalf("Stat() error = %v, want not-exist before Load()", err)
-		}
-
-		_, err := Load(configPath)
-		if err != nil {
-			t.Fatalf("Load() returned error: %v", err)
-		}
-
-		info, err := os.Stat(missingDataDir)
-		if err != nil {
-			t.Fatalf("Stat() returned error: %v", err)
-		}
-		if !info.IsDir() {
-			t.Fatalf("Load() created non-directory data dir at %q", missingDataDir)
-		}
-	})
-
-	t.Run("creates missing data dir", func(t *testing.T) {
-		missingDataDir := filepath.Join(t.TempDir(), "new-data-dir")
-		configPath := writeConfigFile(t, strings.Join([]string{
-			"node_id: node-1",
-			"client_address: 127.0.0.1:8080",
-			"raft_address: 127.0.0.1:8081",
-			"peers:",
-			"  - 127.0.0.1:8081",
-			"  - 127.0.0.1:8082",
+			"  - node_id: node-1",
+			"    raft_address: 127.0.0.1:8081",
+			"  - node_id: node-2",
+			"    raft_address: 127.0.0.1:8082",
 			"data_dir: " + missingDataDir,
 			"election_min_ms: 150",
 			"election_max_ms: 300",
@@ -392,14 +435,15 @@ func TestLoad(t *testing.T) {
 		}
 	})
 
-	t.Run("rejects unknown fields", func(t *testing.T) {
+	t.Run("rejects unknown top-level fields", func(t *testing.T) {
 		configPath := writeConfigFile(t, strings.Join([]string{
 			"node_id: node-1",
 			"client_address: 127.0.0.1:8080",
-			"raft_address: 127.0.0.1:8081",
 			"peers:",
-			"  - 127.0.0.1:8081",
-			"  - 127.0.0.1:8082",
+			"  - node_id: node-1",
+			"    raft_address: 127.0.0.1:8081",
+			"  - node_id: node-2",
+			"    raft_address: 127.0.0.1:8082",
 			"data_dir: " + t.TempDir(),
 			"election_min_ms: 150",
 			"election_max_ms: 300",
@@ -413,14 +457,34 @@ func TestLoad(t *testing.T) {
 		}
 	})
 
+	t.Run("rejects unknown nested peer fields", func(t *testing.T) {
+		configPath := writeConfigFile(t, strings.Join([]string{
+			"node_id: node-1",
+			"client_address: 127.0.0.1:8080",
+			"peers:",
+			"  - node_id: node-1",
+			"    raft_address: 127.0.0.1:8081",
+			"    extra: value",
+			"data_dir: " + t.TempDir(),
+			"election_min_ms: 150",
+			"election_max_ms: 300",
+			"heartbeat_ms: 50",
+		}, "\n"))
+
+		_, err := Load(configPath)
+		if err == nil || !strings.Contains(err.Error(), "field extra not found") {
+			t.Fatalf("Load() error = %v, want nested unknown field error", err)
+		}
+	})
+
 	t.Run("returns validation error without creating data dir", func(t *testing.T) {
 		missingDataDir := filepath.Join(t.TempDir(), "new-data-dir")
 		configPath := writeConfigFile(t, strings.Join([]string{
 			"node_id: node-1",
 			"client_address: 127.0.0.1:8080",
-			"raft_address: 127.0.0.1:8081",
 			"peers:",
-			"  - 127.0.0.1:8082",
+			"  - node_id: node-2",
+			"    raft_address: 127.0.0.1:8082",
 			"data_dir: " + missingDataDir,
 			"election_min_ms: 150",
 			"election_max_ms: 300",
@@ -441,10 +505,11 @@ func TestLoad(t *testing.T) {
 		configPath := writeConfigFile(t, strings.Join([]string{
 			"node_id: node-1",
 			"client_address: 127.0.0.1:8080",
-			"raft_address: 127.0.0.1:8081",
 			"peers:",
-			"  - 127.0.0.1:8081",
-			"  - 127.0.0.1:8082",
+			"  - node_id: node-1",
+			"    raft_address: 127.0.0.1:8081",
+			"  - node_id: node-2",
+			"    raft_address: 127.0.0.1:8082",
 			"data_dir: " + t.TempDir(),
 			"election_min_ms: 150",
 			"election_max_ms: 300",
@@ -465,10 +530,11 @@ func TestLoad(t *testing.T) {
 		configPath := writeConfigFile(t, strings.Join([]string{
 			"node_id: node-1",
 			"client_address: 127.0.0.1:8080",
-			"raft_address: 127.0.0.1:8081",
 			"peers:",
-			"  - 127.0.0.1:8081",
-			"  - 127.0.0.1:8082",
+			"  - node_id: node-1",
+			"    raft_address: 127.0.0.1:8081",
+			"  - node_id: node-2",
+			"    raft_address: 127.0.0.1:8082",
 			"data_dir: " + filePath,
 			"election_min_ms: 150",
 			"election_max_ms: 300",
