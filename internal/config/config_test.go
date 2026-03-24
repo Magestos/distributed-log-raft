@@ -119,6 +119,42 @@ func TestPrepareDataDir(t *testing.T) {
 	})
 }
 
+func TestPrepareDataDir(t *testing.T) {
+	t.Run("creates missing directory", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "data")
+		if err := PrepareDataDir(path); err != nil {
+			t.Fatalf("PrepareDataDir() returned error: %v", err)
+		}
+
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("Stat() returned error: %v", err)
+		}
+		if !info.IsDir() {
+			t.Fatalf("PrepareDataDir() created non-directory at %q", path)
+		}
+	})
+
+	t.Run("accepts existing directory", func(t *testing.T) {
+		path := t.TempDir()
+		if err := PrepareDataDir(path); err != nil {
+			t.Fatalf("PrepareDataDir() returned error: %v", err)
+		}
+	})
+
+	t.Run("rejects file path", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "file")
+		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+			t.Fatalf("WriteFile() returned error: %v", err)
+		}
+
+		err := PrepareDataDir(path)
+		if err == nil || !strings.Contains(err.Error(), "is not a directory") {
+			t.Fatalf("PrepareDataDir() error = %v, want not-a-directory error", err)
+		}
+	})
+}
+
 func TestConfigValidate(t *testing.T) {
 	testCases := []struct {
 		name    string
@@ -344,6 +380,7 @@ func TestLoad(t *testing.T) {
 	})
 
 	t.Run("creates missing data dir", func(t *testing.T) {
+		configPath := filepath.Join(t.TempDir(), "config.yml")
 		missingDataDir := filepath.Join(t.TempDir(), "new-data-dir")
 		configPath := writeConfigFile(t, strings.Join([]string{
 			"node_id: node-1",
