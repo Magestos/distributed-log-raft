@@ -3,34 +3,43 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
-	"os"
+	"strconv"
 	"strings"
 )
 
 func NormalizeHostPort(address string) (string, error) {
 	address = strings.TrimSpace(address)
+	if address == "" {
+		return "", errors.New("address is required")
+	}
 
-	addrPort, err := netip.ParseAddrPort(address)
-
+	host, portValue, err := net.SplitHostPort(address)
 	if err != nil {
 		return "", err
 	}
-	if addrPort.Port() < 1024 {
-		return "", errors.New("privileged port usage detected")
+
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return "", errors.New("host is required")
 	}
-	if addrPort.Port() == 0 {
+
+	port, err := strconv.Atoi(portValue)
+	if err != nil {
+		return "", fmt.Errorf("invalid port %q", portValue)
+	}
+	if port < 1 || port > 65535 {
 		return "", errors.New("port out of range")
 	}
 
-	return addrPort.String(), nil
-}
-
-func ValidateDirectory(path string) error {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return fmt.Errorf("directory %s not found", path)
+	if parsedIP, err := netip.ParseAddr(host); err == nil {
+		host = parsedIP.String()
+	} else {
+		host = strings.ToLower(host)
 	}
-	return nil
+
+	return net.JoinHostPort(host, strconv.Itoa(port)), nil
 }
 
 func ValidateHostPort(address string) error {
@@ -107,12 +116,12 @@ func validateTimeouts(electionMin, electionMax, heartbeat int) error {
 		return errors.New("ElectionMinMS cannot be more than ElectionMaxMS")
 	}
 
-	if heartbeat < 0 {
-		return errors.New("heartbeat cannot be less than 0")
+	if heartbeat < 1 {
+		return errors.New("heartbeat must be greater than 0")
 	}
 
-	if heartbeat > electionMin {
-		return errors.New("heartbeat cannot be greater than ElectionMinMS")
+	if heartbeat >= electionMin {
+		return errors.New("heartbeat must be less than ElectionMinMS")
 	}
 
 	return nil
@@ -128,10 +137,6 @@ func (conf *Config) Validate() error {
 	}
 
 	if err := requireNonEmpty("data dir", conf.DataDir); err != nil {
-		return err
-	}
-
-	if err := ValidateDirectory(conf.DataDir); err != nil {
 		return err
 	}
 

@@ -9,5 +9,5 @@ peers:
   - 127.0.0.1:8323
 election_min_ms: 15
 election_max_ms: 200
+heartbeat_ms: 5
 data_dir: "data_directory/${node_id}"
-
