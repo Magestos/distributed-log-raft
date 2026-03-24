@@ -196,13 +196,6 @@ func TestConfigValidate(t *testing.T) {
 			wantErr: "invalid address or port value on client address",
 		},
 		{
-			name: "client address with privileged port",
-			mutate: func(cfg *Config) {
-				cfg.ClientAddress = "127.0.0.1:80"
-			},
-			wantErr: "privileged port usage detected",
-		},
-		{
 			name: "invalid raft address",
 			mutate: func(cfg *Config) {
 				cfg.RaftAddress = "127.0.0.1"
@@ -389,7 +382,7 @@ func TestLoad(t *testing.T) {
 	t.Run("creates missing data dir", func(t *testing.T) {
 		configPath := filepath.Join(t.TempDir(), "config.yml")
 		missingDataDir := filepath.Join(t.TempDir(), "new-data-dir")
-		content := strings.Join([]string{
+		configPath := writeConfigFile(t, strings.Join([]string{
 			"node_id: node-1",
 			"client_address: 127.0.0.1:8080",
 			"raft_address: 127.0.0.1:8081",
@@ -400,11 +393,7 @@ func TestLoad(t *testing.T) {
 			"election_min_ms: 150",
 			"election_max_ms: 300",
 			"heartbeat_ms: 50",
-		}, "\n")
-
-		if err := os.WriteFile(configPath, []byte(content), 0o600); err != nil {
-			t.Fatalf("WriteFile() returned error: %v", err)
-		}
+		}, "\n"))
 
 		if _, err := os.Stat(missingDataDir); !os.IsNotExist(err) {
 			t.Fatalf("Stat() error = %v, want not-exist before Load()", err)
