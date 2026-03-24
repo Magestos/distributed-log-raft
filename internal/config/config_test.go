@@ -380,7 +380,6 @@ func TestLoad(t *testing.T) {
 	})
 
 	t.Run("creates missing data dir", func(t *testing.T) {
-		configPath := filepath.Join(t.TempDir(), "config.yml")
 		missingDataDir := filepath.Join(t.TempDir(), "new-data-dir")
 		configPath := writeConfigFile(t, strings.Join([]string{
 			"node_id: node-1",
