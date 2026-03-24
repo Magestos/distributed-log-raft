@@ -119,6 +119,42 @@ func TestPrepareDataDir(t *testing.T) {
 	})
 }
 
+func TestPrepareDataDir(t *testing.T) {
+	t.Run("creates missing directory", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "data")
+		if err := PrepareDataDir(path); err != nil {
+			t.Fatalf("PrepareDataDir() returned error: %v", err)
+		}
+
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("Stat() returned error: %v", err)
+		}
+		if !info.IsDir() {
+			t.Fatalf("PrepareDataDir() created non-directory at %q", path)
+		}
+	})
+
+	t.Run("accepts existing directory", func(t *testing.T) {
+		path := t.TempDir()
+		if err := PrepareDataDir(path); err != nil {
+			t.Fatalf("PrepareDataDir() returned error: %v", err)
+		}
+	})
+
+	t.Run("rejects file path", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "file")
+		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+			t.Fatalf("WriteFile() returned error: %v", err)
+		}
+
+		err := PrepareDataDir(path)
+		if err == nil || !strings.Contains(err.Error(), "is not a directory") {
+			t.Fatalf("PrepareDataDir() error = %v, want not-a-directory error", err)
+		}
+	})
+}
+
 func TestConfigValidate(t *testing.T) {
 	testCases := []struct {
 		name    string
@@ -158,6 +194,13 @@ func TestConfigValidate(t *testing.T) {
 				cfg.ClientAddress = "127.0.0.1"
 			},
 			wantErr: "invalid address or port value on client address",
+		},
+		{
+			name: "client address with privileged port",
+			mutate: func(cfg *Config) {
+				cfg.ClientAddress = "127.0.0.1:80"
+			},
+			wantErr: "privileged port usage detected",
 		},
 		{
 			name: "invalid raft address",
@@ -324,6 +367,44 @@ func TestLoad(t *testing.T) {
 			"election_max_ms: 300",
 			"heartbeat_ms: 50",
 		}, "\n"))
+
+		if _, err := os.Stat(missingDataDir); !os.IsNotExist(err) {
+			t.Fatalf("Stat() error = %v, want not-exist before Load()", err)
+		}
+
+		_, err := Load(configPath)
+		if err != nil {
+			t.Fatalf("Load() returned error: %v", err)
+		}
+
+		info, err := os.Stat(missingDataDir)
+		if err != nil {
+			t.Fatalf("Stat() returned error: %v", err)
+		}
+		if !info.IsDir() {
+			t.Fatalf("Load() created non-directory data dir at %q", missingDataDir)
+		}
+	})
+
+	t.Run("creates missing data dir", func(t *testing.T) {
+		configPath := filepath.Join(t.TempDir(), "config.yml")
+		missingDataDir := filepath.Join(t.TempDir(), "new-data-dir")
+		content := strings.Join([]string{
+			"node_id: node-1",
+			"client_address: 127.0.0.1:8080",
+			"raft_address: 127.0.0.1:8081",
+			"peers:",
+			"  - 127.0.0.1:8081",
+			"  - 127.0.0.1:8082",
+			"data_dir: " + missingDataDir,
+			"election_min_ms: 150",
+			"election_max_ms: 300",
+			"heartbeat_ms: 50",
+		}, "\n")
+
+		if err := os.WriteFile(configPath, []byte(content), 0o600); err != nil {
+			t.Fatalf("WriteFile() returned error: %v", err)
+		}
 
 		if _, err := os.Stat(missingDataDir); !os.IsNotExist(err) {
 			t.Fatalf("Stat() error = %v, want not-exist before Load()", err)
